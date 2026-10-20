@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import sys
 from pathlib import Path
 
 SIS_HOST = "https://sis.cuhk.edu.cn"
@@ -116,22 +117,74 @@ def save_config(cfg: dict) -> None:
     _restrict(p)
 
 
-def resolve_credentials(cfg: dict, cli_user: str | None, password_env: str | None) -> tuple[str, str]:
-    """Credential resolution priority: CLI/env vars > config file. The password is never echoed into logs."""
-    username = cli_user or os.environ.get(ENV_USERNAME) or cfg.get("username")
-    password = None
-    if password_env:
-        password = os.environ.get(password_env)
-    elif os.environ.get(ENV_PASSWORD):
-        password = os.environ.get(ENV_PASSWORD)
-    else:
-        password = cfg.get("password")
-    if not username or not password:
-        raise SystemExit(
-            "Missing credentials: use `sis-cli login` to enter them interactively, or set "
-            f"{ENV_USERNAME}/{ENV_PASSWORD}, or pass --password-env to name a variable"
-        )
-    return username, password
+# ---- Multi-account store ----
+# config.json shape (0.4.0+): {"accounts": {name: {"username": ..., "password": ...}},
+# "default_account": name}. The legacy flat {"username", "password"} shape is still
+# read as an implicit default account and normalized away on the next save.
+# Automatic re-login (per command — PeopleSoft sessions last only minutes) uses
+# the DEFAULT account only; other stored accounts are never auto-logged-in.
+
+def accounts_view(cfg: dict) -> dict:
+    """Normalized in-memory view {name: {"username", "password"}}; legacy flat fields fold in."""
+    accounts = {k: dict(v) for k, v in (cfg.get("accounts") or {}).items() if isinstance(v, dict)}
+    legacy_user = cfg.get("username")
+    if legacy_user and legacy_user not in [a.get("username") for a in accounts.values()]:
+        accounts.setdefault(str(legacy_user), {"username": legacy_user, "password": cfg.get("password")})
+    return accounts
+
+
+def default_account(cfg: dict) -> str | None:
+    """The single account automatic re-login may use; None when absent or ambiguous."""
+    accounts = accounts_view(cfg)
+    name = cfg.get("default_account")
+    if name in accounts:
+        return name
+    if len(accounts) == 1:  # the only stored account is the implicit default
+        return next(iter(accounts))
+    return None  # nothing stored, or multiple accounts with no default set
+
+
+def list_accounts(cfg: dict) -> list[dict]:
+    d = default_account(cfg)
+    return [{"name": n, "username": a.get("username"),
+             "has_password": bool(a.get("password")), "default": n == d}
+            for n, a in sorted(accounts_view(cfg).items())]
+
+
+def store_account(cfg: dict, name: str, username: str, password: str | None, *, make_default: bool) -> dict:
+    """Write an account under `name` (password None = recorded without stored credentials),
+    normalizing legacy flat fields away. The default pointer moves only when explicit
+    (make_default) or when it is currently unset/dangling; an existing different default wins."""
+    accounts = accounts_view(cfg)
+    accounts[name] = {"username": username, "password": password}
+    cfg["accounts"] = accounts
+    cfg.pop("username", None)
+    cfg.pop("password", None)
+    if make_default or cfg.get("default_account") not in accounts:
+        cfg["default_account"] = name
+    return cfg
+
+
+def resolve_auto_credentials(cfg: dict) -> tuple[str, str]:
+    """Credentials for AUTOMATIC re-login (per command here — sessions last only minutes)
+    only — the default account, exclusively. Chain: named default → implicit default
+    (legacy flat / single stored account) → env vars as a last-resort off-disk fallback.
+    A non-default account is never auto-logged-in."""
+    accounts = accounts_view(cfg)
+    name = default_account(cfg)
+    if name is not None:
+        acct = accounts[name]
+        if acct.get("username") and acct.get("password"):
+            return acct["username"], acct["password"]
+    env_user = os.environ.get(ENV_USERNAME)
+    env_pw = os.environ.get(ENV_PASSWORD)
+    if env_user and env_pw:
+        print(f"no default-account credentials stored; falling back to {ENV_USERNAME}/{ENV_PASSWORD} env vars", file=sys.stderr)
+        return env_user, env_pw
+    raise SystemExit(
+        "No credentials for automatic re-login (auto-login only ever uses the DEFAULT account): "
+        "run `sis-cli login --account <name>` interactively to store credentials, then "
+        "`sis-cli default <name>` — the first stored account becomes the default automatically")
 
 
 def proxy() -> str | None:

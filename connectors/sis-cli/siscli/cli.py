@@ -27,34 +27,95 @@ def cmd_status(sis: Sis, args) -> int:
         session = "unreadable"
     try:
         # Use the same resolver as re-login; never echo values or exception text.
-        config.resolve_credentials(sis.cfg, None, None)
+        config.resolve_auto_credentials(sis.cfg, None, None)
         relogin = "credentials_available_unverified"
     except SystemExit:
         relogin = "blocked_missing_credentials"
+    accounts = config.accounts_view(sis.cfg)
+    default = config.default_account(sis.cfg)
     print(_fmt({"authenticated": None,
                 "authentication_checked": False,
                 "session": session,
                 "reachable": None,
                 "network_checked": False,
                 "relogin": relogin,
+                "default_account": default,
+                "accounts": len(accounts),
                 "host": "sis.cuhk.edu.cn",
                 "components": sorted(config.COMPONENTS)}))
     return 0
 
 
 def cmd_login(sis: Sis, args) -> int:
-    username = args.username or input("Student id: ").strip()
+    accounts = config.accounts_view(sis.cfg)
+    name = args.account or ""
+    username = args.username or os.environ.get(config.ENV_USERNAME)
+    if not username and name and name in accounts:
+        username = accounts[name].get("username")
+    if not username:  # convenience: prefill from the default account's stored username
+        d = config.default_account(sis.cfg)
+        if d is not None:
+            username = accounts.get(d, {}).get("username")
+    if not username:
+        username = input("Student id: ").strip()
     password = os.environ.get(args.password_env) if args.password_env else None
     if not password:
         password = getpass.getpass("Password: ")
-    info = sis.login(username, password, store=not args.no_store)
+    make_default = args.default or config.default_account(sis.cfg) is None
+    info = sis.login(username, password, store=not args.no_store,
+                     account=args.account, make_default=make_default)
+    if not args.no_store:
+        print(f"credentials for account '{info['account']}' saved to {config.config_path()} (local user directory only)",
+              file=sys.stderr)
     print(_fmt(info))
+    return 0
+
+
+def cmd_accounts(sis: Sis, args) -> int:
+    rows = config.list_accounts(sis.cfg)
+    d = config.default_account(sis.cfg)
+    out = {"accounts": rows, "default_account": d}
+    if len(rows) > 1 and not d:
+        out["hint"] = "multiple accounts and no default set: automatic re-login refuses to pick — run `sis-cli default <name>`"
+    print(_fmt(out))
+    for r in rows:
+        print(f"{'*' if r['default'] else ' '} {r['name']}  {r['username']}  "
+              f"{'password stored' if r['has_password'] else 'no password stored'}")
+    if not rows:
+        print("(no accounts — run `sis-cli login`)")
+    if out.get("hint"):
+        print(f"!! {out['hint']}", file=sys.stderr)
+    return 0
+
+
+def cmd_default(sis: Sis, args) -> int:
+    if not args.name:
+        d = config.default_account(sis.cfg)
+        print(_fmt({"default_account": d, "accounts": config.list_accounts(sis.cfg)}))
+        print(f"default account: {d or '(none — the first stored account becomes the default)'}")
+        return 0
+    accounts = config.accounts_view(sis.cfg)
+    if args.name not in accounts:
+        print(f"Unknown account '{args.name}'; known: {', '.join(sorted(accounts)) or '(none)'} "
+              f"— create one with `sis-cli login --account {args.name}`", file=sys.stderr)
+        return 1
+    config.store_account(sis.cfg, args.name, accounts[args.name]["username"],
+                         accounts[args.name].get("password"), make_default=True)
+    config.save_config(sis.cfg)
+    p = config.session_path()
+    if p.exists():
+        p.unlink()  # deterministic switch: the next command re-logs-in as the new default
+    print(_fmt({"default_account": args.name,
+                "note": "local session cleared; the next command will auto-login as this account "
+                        "(auto-login only ever uses the default account)"}))
     return 0
 
 
 def cmd_logout(sis: Sis, args) -> int:
     sis.logout()
-    print("logged out (local session and credentials cleared)")
+    n = len(config.accounts_view(sis.cfg))
+    extra = f", {n} account name(s) kept for quick re-login (passwords wiped)" if n else ""
+    print(f"logged out (local session and stored passwords cleared{extra})")
     return 0
 
 
@@ -200,9 +261,16 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("status", help="local session/credential evidence (no network or login)")
     sub.add_parser("logout", help="log out and clear local credentials/session")
+    sub.add_parser("accounts", help="list stored accounts (passwords never shown)")
 
-    p = sub.add_parser("login", help="interactive login")
+    p = sub.add_parser("default", help="show or set the default account (the only one auto-login ever uses)")
+    p.add_argument("name", nargs="?", help="account name to make the default; omit to show the current one")
+
+    p = sub.add_parser("login", help="interactive login (first login becomes the default account)")
     p.add_argument("--username", "-u")
+    p.add_argument("--account", help="store the credentials under this account name (default: the username)")
+    p.add_argument("--default", action="store_true",
+                   help="also make this account the default (automatic re-login only ever uses the default)")
     p.add_argument("--no-store", action="store_true", help="keep credentials off disk (default: stored in ~/.sis-cli)")
     p.add_argument("--password-env")
 
@@ -246,12 +314,13 @@ def main(argv=None) -> int:
     sis = Sis()
 
     handlers = {"status": cmd_status, "login": cmd_login, "logout": cmd_logout,
+                "accounts": cmd_accounts, "default": cmd_default,
                 "schedule": cmd_schedule, "grades": cmd_grades, "history": cmd_history,
                 "appt": cmd_appt, "exam": cmd_exam, "raw": cmd_raw,
                 "center": cmd_text_component, "assignments": cmd_text_component,
                 "transcript": cmd_transcript, "identity": cmd_identity, "dpr": cmd_dpr}
 
-    if args.cmd not in ("login", "logout", "status"):
+    if args.cmd not in ("login", "logout", "status", "accounts", "default"):
         sis.ensure_session()
     if args.cmd == "raw" and args.file:
         import pathlib

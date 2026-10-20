@@ -39,14 +39,18 @@ Dependencies are only `curl_cffi` (Chrome TLS fingerprint — the site rejects p
 - `bb-cli login`: interactively enter your student id and password (the password is not echoed). The student id automatically gets the `cuhksz\` domain prefix appended (matching the login page's custom JS); input already containing `@` or `\` is left unchanged.
 - Credentials and sessions live only in the local user directory `~/.bb-cli/` (`BB_CLI_HOME` can override): `config.json` (credentials, permission 0600) + `session.json` (cookie jar). **Never written into any repository.**
 - Off-disk option: `--password-env VAR` (or the `BB_CLI_PASSWORD` environment variable) + `--no-store`.
-- An expired session automatically re-logs in once and replays the request (triggered by 401, credentials taken from config/environment).
-- `bb-cli logout` logs out and clears the local session.
+- An expired session automatically re-logs in once and replays the request (triggered by 401).
+
+**Multiple accounts & the default account** (0.2.0): credentials are stored per account (`login --account <name>`, default name = the username) as `{"accounts": {name: {username, password}}, "default_account": name}`; the legacy flat config is still read as an implicit default account and normalized on the next save. **Automatic re-login only ever uses the default account** — the first stored login becomes it automatically; `bb-cli default` shows it, `bb-cli default <name>` switches (clearing the session so the next command deterministically logs in as it); `bb-cli accounts` lists accounts (passwords never shown). When several accounts are stored and no default is set, auto-login refuses to pick one and says so. Recommended init: run `bb-cli login` manually once to leave credentials, and confirm the default (`bb-cli default`). The environment variables only apply to explicit `login` (plus a last-resort auto-login fallback when no default account has stored credentials).
+
+- `bb-cli logout` logs out and clears the local session (stored accounts are kept — manage them with `bb-cli accounts`).
 
 ## Commands (all read-only, JSON by default, `--format text` for humans)
 
 | Command | Purpose |
 |---|---|
 | `whoami` / `status` / `terms` | Identity, session status, term list |
+| `accounts` / `default [<name>]` | List stored accounts (passwords never shown) / show or set the default account — the only one auto-login ever uses |
 | `courses [--term substring]` | My courses (`--format text` prints one line per course) |
 | `tree <course> [--depth N] [--no-attachments]` | Content tree (folder/lesson/assignment, leaves carry attachment names) |
 | `files <course> [--match regex]` | Course file inventory (full paths + attachment id/file name/mime; `--match` applies to paths and file names) |

@@ -16,7 +16,9 @@ class Sis:
 
     # ---- Session ----
     def _relogin(self) -> None:
-        username, password = config.resolve_credentials(self.cfg, None, None)
+        # Automatic re-login (per command — sessions last only minutes) uses the
+        # DEFAULT account exclusively; a non-default account is never auto-logged-in.
+        username, password = config.resolve_auto_credentials(self.cfg)
         login(self.transport, username, password)
 
     def ensure_session(self) -> bool:
@@ -25,21 +27,30 @@ class Sis:
         self._relogin()
         return True
 
-    def login(self, username: str, password: str, *, store: bool) -> dict:
+    def login(self, username: str, password: str, *, store: bool,
+              account: str | None = None, make_default: bool = False) -> dict:
         info = login(self.transport, username, password)
-        if store:
-            self.cfg.update({"username": username, "password": password})
-            config.save_config(self.cfg)
-        else:
-            self.cfg.pop("password", None)
-            if username:
-                self.cfg["username"] = username
-            config.save_config(self.cfg)
+        name = account or username
+        config.store_account(self.cfg, name, username, password if store else None,
+                             make_default=make_default)
+        config.save_config(self.cfg)
+        info["account"] = name
+        info["default_account"] = config.default_account(self.cfg)
+        d = info["default_account"]
+        info["note"] = (f"account '{name}' is now the default — automatic re-login will use this account only"
+                        if d == name else
+                        f"note: default account is '{d}' — automatic re-login uses that one; "
+                        f"switch with `sis-cli default {name}`")
         return info
 
     def logout(self) -> None:
         from .auth import logout
         logout(self.transport)
+        # Same contract as before 0.4.0: logging out clears every stored password
+        # (account names and usernames are kept for a quick re-login).
+        for a in (self.cfg.get("accounts") or {}).values():
+            if isinstance(a, dict):
+                a.pop("password", None)
         self.cfg.pop("password", None)
         config.save_config(self.cfg)
 

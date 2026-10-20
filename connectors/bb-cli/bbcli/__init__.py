@@ -7,4 +7,4 @@ Discipline: read-only — never issues any write request; credentials and
 sessions live only in the user directory, never in any repository.
 """
 
-__version__ = "0.1.5"
+__version__ = "0.2.0"
