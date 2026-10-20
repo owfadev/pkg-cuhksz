@@ -83,7 +83,7 @@ def build_client() -> tuple[BBClient, Transport, dict]:
     t.load_session()
 
     def relogin():
-        username, password = config.resolve_credentials(cfg, None, None)
+        username, password = config.resolve_auto_credentials(cfg)
         auth.login(t, username, password)
         t.save_session()
 
@@ -116,7 +116,15 @@ def cmd_login(args):
     import os
 
     cfg = config.load_config()
-    username = args.username or os.environ.get(config.ENV_USERNAME) or cfg.get("username")
+    accounts = config.accounts_view(cfg)
+    name = args.account or ""
+    username = args.username or os.environ.get(config.ENV_USERNAME)
+    if not username and name and name in accounts:
+        username = accounts[name].get("username")
+    if not username:  # convenience: prefill from the default account's stored username
+        d = config.default_account(cfg)
+        if d is not None:
+            username = accounts.get(d, {}).get("username")
     if not username:
         username = input("Student id / email prefix: ").strip()
     if args.password_env:
@@ -130,19 +138,68 @@ def cmd_login(args):
     t = Transport()
     me = auth.login(t, username, password)
     t.save_session()
-    cfg["username"] = username
-    if not args.no_store:
-        cfg["password"] = password
-        print(f"Credentials saved to {config.config_path()} (local user directory only)", file=sys.stderr)
+    name = name or username
+    make_default = args.default or config.default_account(cfg) is None
+    config.store_account(cfg, name, username, None if args.no_store else password,
+                         make_default=make_default)
     config.save_config(cfg)
-    emit({"login": "ok", "user": me.get("name"), "id": me.get("id")}, args.format)
+    if not args.no_store:
+        print(f"Credentials for account '{name}' saved to {config.config_path()} (local user directory only)", file=sys.stderr)
+    d = config.default_account(cfg)
+    note = (f"account '{name}' is now the default — automatic re-login will use this account only"
+            if d == name else
+            f"note: default account is '{d}' — automatic re-login uses that one; switch with `bb-cli default {name}`")
+    emit({"login": "ok", "user": me.get("name"), "id": me.get("id"),
+          "account": name, "default_account": d, "note": note}, args.format,
+          lambda o: [f"login ok  user={((o.get('user') or {}).get('given')) or o.get('user')}  "
+                     f"account={o['account']}  default={o['default_account']}", o["note"]])
+
+
+def cmd_accounts(args):
+    cfg = config.load_config()
+    rows = config.list_accounts(cfg)
+    d = config.default_account(cfg)
+    hint = None if len(rows) <= 1 or d else \
+        "multiple accounts and no default set: automatic re-login refuses to pick — run `bb-cli default <name>`"
+    emit({"accounts": rows, "default_account": d, "hint": hint}, args.format,
+          lambda o: [f"{'*' if r['default'] else ' '} {r['name']}  {r['username']}  "
+                     f"{'password stored' if r['has_password'] else 'no password stored'}"
+                     for r in o["accounts"]] + (["!! " + o["hint"]] if o.get("hint") else [])
+          or ["(no accounts — run `bb-cli login`)"])
+
+
+def cmd_default(args):
+    cfg = config.load_config()
+    if not args.name:
+        d = config.default_account(cfg)
+        rows = config.list_accounts(cfg)
+        emit({"default_account": d, "accounts": rows}, args.format,
+              lambda o: [f"default account: {o['default_account'] or '(none — first stored account becomes the default)'}"]
+              + [f"{'*' if r['default'] else ' '} {r['name']}  {r['username']}" for r in o["accounts"]])
+        return
+    accounts = config.accounts_view(cfg)
+    if args.name not in accounts:
+        sys.exit(f"Unknown account '{args.name}'; known: {', '.join(sorted(accounts)) or '(none)'}"
+                 f" — create one with `bb-cli login --account {args.name}`")
+    config.store_account(cfg, args.name, accounts[args.name]["username"],
+                         accounts[args.name].get("password"), make_default=True)
+    config.save_config(cfg)
+    p = config.session_path()
+    if p.exists():
+        p.unlink()  # deterministic switch: the next command re-logs-in as the new default
+    emit({"default_account": args.name,
+          "note": "local session cleared; the next command will auto-login as this account "
+                  "(auto-login only ever uses the default account)"}, args.format,
+          lambda o: [f"default account set to '{o['default_account']}'", o["note"]])
 
 
 def cmd_logout(args):
     t = Transport()
     t.load_session()
     auth.logout(t)
-    print("Logged out; local session cleared")
+    n = len(config.accounts_view(config.load_config()))
+    extra = f" ({n} stored account(s) kept — manage with `bb-cli accounts`)" if n else ""
+    print(f"Logged out; local session cleared{extra}")
 
 
 def cmd_whoami(args):
@@ -152,7 +209,7 @@ def cmd_whoami(args):
 
 
 def cmd_status(args):
-    c, t, _ = build_client()
+    c, t, cfg = build_client()
     t._relogin = None  # status probing never triggers auto re-login; an unauthenticated state is reported as-is
     has_file = config.session_path().exists()
     try:
@@ -161,10 +218,16 @@ def cmd_status(args):
     except Exception:
         me, ok = None, False
     emit({"session_file": has_file, "authenticated": ok,
-          "user": (me or {}).get("name")}, args.format,
+          "user": (me or {}).get("name"), "default_account": config.default_account(cfg),
+          "accounts": len(config.accounts_view(cfg))}, args.format,
          lambda o: [f"session_file={'yes' if o['session_file'] else 'no'}  "
                     f"authenticated={'yes' if o['authenticated'] else 'no'}  "
-                    f"user={((o.get('user') or {}).get('given')) or '-'}"])
+                    f"user={((o.get('user') or {}).get('given')) or '-'}  "
+                    f"default_account={o['default_account'] or '-'}  accounts={o['accounts']}"] +
+         (["!! no stored credentials for auto re-login — run `bb-cli login` (first login becomes the default account)"]
+          if o["accounts"] == 0 else
+          ["!! multiple accounts and no default set — auto-login refuses to pick; run `bb-cli default <name>`"]
+          if not o["default_account"] else []))
 
 
 def cmd_terms(args):
@@ -536,14 +599,23 @@ def build_parser() -> argparse.ArgumentParser:
     def cmd(name: str, help_: str):
         return sub.add_parser(name, help=help_, parents=[common])
 
-    s = cmd("login", "log in and save the session")
+    s = cmd("login", "log in and save the session (first login becomes the default account)")
     s.add_argument("--username")
+    s.add_argument("--account", help="store the credentials under this account name (default: the username)")
+    s.add_argument("--default", action="store_true",
+                   help="also make this account the default (automatic re-login only ever uses the default)")
     s.add_argument("--password-env", help="read the password from this environment variable")
     s.add_argument("--no-store", action="store_true", help="do not write the password into the local config")
     s.set_defaults(fn=cmd_login)
 
     cmd("logout", "log out and clear the local session").set_defaults(fn=cmd_logout)
     cmd("whoami", "current user").set_defaults(fn=cmd_whoami)
+    cmd("accounts", "list stored accounts (passwords never shown)").set_defaults(fn=cmd_accounts)
+
+    s = cmd("default", "show or set the default account (the only one auto-login ever uses)")
+    s.add_argument("name", nargs="?", help="account name to make the default; omit to show the current one")
+    s.set_defaults(fn=cmd_default)
+
     cmd("status", "session status").set_defaults(fn=cmd_status)
     cmd("terms", "term list").set_defaults(fn=cmd_terms)
 

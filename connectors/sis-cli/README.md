@@ -44,7 +44,9 @@ Flow (fully HTTP-reproducible, no browser):
 
 Credentials and sessions live only in the local `~/.sis-cli/` (`SIS_CLI_HOME` can override): `config.json` (credentials, permission 0600) + `session.json` (cookie jar). **Never written into any repository.** Off-disk option: the environment variables `SIS_CLI_USERNAME` / `SIS_CLI_PASSWORD`, or `sis-cli login --no-store`.
 
-**Short-lived sessions**: in live testing `PS_TOKEN` expires in about 5 minutes, and `PORTAL-PSJSESSIONID` is re-issued on a rolling basis with each response. CLI strategy: write through session.json after every request; when component access hits the login shell, automatically re-login once and replay (the ADFS session persists, so a re-login costs ≈ two requests).
+**Multiple accounts & the default account** (0.4.0): credentials are stored per account (`login --account <name>`, default name = the username) as `{"accounts": {name: {username, password}}, "default_account": name}`; the legacy flat config is still read as an implicit default account and normalized on the next save. **Automatic re-login (per command — see below) only ever uses the default account**: the first stored login becomes it automatically; `sis-cli default` shows it, `sis-cli default <name>` switches (clearing the session so the next command deterministically logs in as it); `sis-cli accounts` lists accounts (passwords never shown). When several accounts are stored and no default is set, auto-login refuses to pick one and says so. Recommended init: run `sis-cli login` manually once to leave credentials, and confirm the default (`sis-cli default`). The environment variables only apply to explicit `login` (plus a last-resort auto-login fallback when no default account has stored credentials).
+
+**Short-lived sessions**: in live testing `PS_TOKEN` expires in about 5 minutes, and `PORTAL-PSJSESSIONID` is re-issued on a rolling basis with each response. CLI strategy: write through session.json after every request; when component access hits the login shell, automatically re-login once and replay — using the **default account's** stored credentials (the ADFS session persists, so a re-login costs ≈ two requests).
 
 ## PeopleSoft access essentials (verified 2026-10-05)
 
@@ -57,8 +59,10 @@ Credentials and sessions live only in the local `~/.sis-cli/` (`SIS_CLI_HOME` ca
 
 | Command | Purpose |
 |---|---|
-| `status` | Offline session/credential evidence and registered components; no network or login |
-| `login` / `logout` | Interactive login (`--no-store` keeps credentials off disk) / logout and clear local state |
+| `status` | Session status and the list of available components |
+| `login` / `logout` | Interactive login (`--account <name>` stores under an account name; first login becomes the default; `--no-store` keeps credentials off disk) / logout and clear local state (stored passwords wiped, account names kept) |
+| `accounts` / `default [<name>]` | List stored accounts (passwords never shown) / show or set the default account — the only one auto-login ever uses |
+
 | `schedule [--days]` | My weekly class schedule: this week's events + the term course table; `--days` adds the **day-of-week timetable** from the student center page (Mo/Tu/We…) |
 | `grades [--term substring]` | View my grades: per-term course rows (course/units/grading basis/grade/grade points); defaults to the newest term |
 | `history` | Full course history: course/description/term/grade/units (page-direct, no interaction needed) |

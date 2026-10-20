@@ -21,11 +21,10 @@ If the projection is absent, stale, lacks freshness/source evidence, or does not
 
 ## Prerequisites (install / auth)
 
-1. Install (if missing): `cd connectors/sis-cli` and install editable with the host's Python package manager (deps: curl_cffi + beautifulsoup4 only; e.g. a venv + its pip on dev desktops, `uv venv .venv && uv pip install -e .` on PEP 668 hosts — instance-level environment declarations in AGENTS.md take precedence; may reuse the bb-cli venv via PYTHONPATH for smoke runs)
-   - If `sis-cli` is not on PATH, invoke the installed module with that environment's Python: `python -m siscli --help` (replace `python` with the actual interpreter path). For a local venv use `./.venv/Scripts/python.exe` on Windows, `./.venv/bin/python` on macOS/Linux; no activation or global PATH edit is needed.
-   - A successful install is not proof that the console script is discoverable. Check `--help` before authentication; if the module is missing, verify the interpreter with `python -m pip show siscli`. See this connector's README Installation section for complete Windows/Git Bash, Unix, and `--user` recovery steps.
-2. Login: `sis-cli login --username <student-id> --no-store` (password via the `SIS_CLI_PASSWORD` env var or interactive prompt; `--no-store` keeps it off disk; session cookie lives in `~/.sis-cli/session.json`). Credentials only ever live under `~/.sis-cli/`.
-3. Local diagnostic: `sis-cli status` never contacts SIS or attempts login. `authenticated: null` and `reachable: null` mean **not checked**, not success or failure; `session: cached_unverified` only confirms a local token was loaded. `relogin: blocked_missing_credentials` means the current resolver cannot supply credentials; availability does not prove they are valid. Exit 0 means the diagnostic completed, not that SIS is usable. A user-requested read can still fail because of campus network/VPN or expired authentication; distinguish those errors and do not infer missing credentials from a network failure. With `login --no-store`, re-login may need human authentication again.
+1. Install (if missing): `cd connectors/sis-cli && python -m venv .venv && .venv/Scripts/pip install -e .` (deps: curl_cffi + beautifulsoup4 only; may reuse the bb-cli venv via PYTHONPATH for smoke runs)
+2. Init (strongly recommended): run `sis-cli login` manually once to leave stored credentials (`--username <student-id>`; password via the `SIS_CLI_PASSWORD` env var or interactive prompt; `--no-store` keeps it off disk; session cookie lives in `~/.sis-cli/session.json`). The first login automatically becomes the **default account** — confirm with `sis-cli default`, switch with `sis-cli default <name>`. Credentials only ever live under `~/.sis-cli/`
+3. Self-check: `sis-cli status` lists components when authenticated; sessions expire in ~5 minutes — the CLI re-logs in automatically per command (default account only), so no manual re-login is normally needed.
+
 
 ## Steps
 
@@ -47,6 +46,7 @@ If the projection is absent, stale, lacks freshness/source evidence, or does not
 | Degree progress report (currently needs Request Audit) | `sis-cli dpr` |
 | Student center / per-assignment grades | `sis-cli center` / `sis-cli assignments` (text summaries) |
 | Any page as HTML, GET or ICAction POST navigation | `sis-cli raw <url> [--post --action BTN --set k=v] --file out.html` |
+| Accounts / default account | `sis-cli accounts` (list, passwords never shown) / `sis-cli default [<name>]` (show or switch; switching clears the session so the next command auto-logs-in as it) |
 
 Component URLs take the form `/psc/csprd/EMPLOYEE/HRMS/c/<COMPONENT>?PORTALPARAM_PTCNAV=<NAV>` — both parts are registered in `siscli/config.py`; use `raw` for anything not yet wrapped.
 
