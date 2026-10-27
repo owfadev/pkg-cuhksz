@@ -13,6 +13,12 @@ Pull information from sis.cuhk.edu.cn via `connectors/sis-cli/` (a purely read-o
 Read: SIS student self-service pages (weekly schedule with day-of-week / per-term grades / course history / enrollment dates / exam schedule / student center)
 Write: none — read-only by design. **Enrollment actions (add/drop/swap classes) and any state-changing transaction are deliberately NOT provided**; the user risks academic penalties for misuse, so never attempt them via raw or any other route. The only POST the CLI ever makes is the term-selection "Continue" query on search pages — a pure query action equivalent to clicking Continue in the browser.
 
+## Schedule query routing
+
+For timetable or next-class questions in a wiki instance, first read `wiki/calendar.md` and the relevant `wiki/calendar/YYYY-MM.md` month projection (including the next month if the requested date crosses a month boundary). Answer locally when the projection identifies the matching SIS source, covers the requested dates, and has an unexpired `stale_after`. Cite that local source and preserve its time zone/date context. Other calendar sources or manual notes are not automatically SIS timetable evidence.
+
+If the projection is absent, stale, lacks freshness/source evidence, or does not cover the requested dates, use SIS as the source under the user's authorization and the instance's connector rules. An explicit request to refresh or verify current server data overrides the local-cache preference. If network/authentication prevents refresh, disclose the limitation; historical local data must be labelled as such and must not be silently re-dated. Outside a wiki instance, this connector remains usable directly; do not create a wiki merely to run a query.
+
 ## Prerequisites (install / auth)
 
 1. Install (if missing): `cd connectors/sis-cli` and install editable with the host's Python package manager (deps: curl_cffi + beautifulsoup4 only; e.g. a venv + its pip on dev desktops, `uv venv .venv && uv pip install -e .` on PEP 668 hosts — instance-level environment declarations in AGENTS.md take precedence; may reuse the bb-cli venv via PYTHONPATH for smoke runs)
