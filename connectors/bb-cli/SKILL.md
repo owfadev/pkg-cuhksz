@@ -16,6 +16,8 @@ Write: none (read-only by design; submitting assignments or posting announcement
 ## Prerequisites (install / auth)
 
 1. Install (if missing): `cd connectors/bb-cli` and install editable with the host's Python package manager (deps: curl_cffi + beautifulsoup4 only; e.g. a venv + its pip on dev desktops, `uv venv .venv && uv pip install -e .` on PEP 668 hosts — instance-level environment declarations in AGENTS.md take precedence)
+   - If `bb-cli` is not on PATH, invoke the installed module with that environment's Python: `python -m bbcli --help` (replace `python` with the actual interpreter path). For a local venv use `./.venv/Scripts/python.exe` on Windows, `./.venv/bin/python` on macOS/Linux; no activation or global PATH edit is needed.
+   - A successful install is not proof that the console script is discoverable. Check `--help` before authentication; if the module is missing, verify the interpreter with `python -m pip show bbcli`. See this connector's README Installation section for complete Windows/Git Bash, Unix, and `--user` recovery steps.
 2. Login: `bb-cli login --username <student-id> --no-store` (password via the `BB_CLI_PASSWORD` env var or interactive prompt; `--no-store` keeps it off disk; session cookie lives in `~/.bb-cli/session.json`)
 3. Self-check: `bb-cli status --format text` → `authenticated=yes` means ready; on 401 run `login` again
 

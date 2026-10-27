@@ -4,13 +4,33 @@ A command-line connector for `bb.cuhk.edu.cn` (Blackboard Learn Classic 3900.39)
 
 ## Installation
 
-```bash
-cd connectors/bb-cli
-# install editable with the host's Python package manager, e.g.:
-python -m venv .venv && .venv/bin/pip install -e .    # venv route (*nix layout; Windows: .venv/Scripts/pip)
-uv venv .venv && uv pip install -e .                  # uv route (PEP 668 hosts without pip/venv)
-.venv/bin/bb-cli --help
+Use the instance's declared Python environment when one exists. Otherwise, from `connectors/bb-cli`, choose one of these isolated environments; activation and global PATH changes are unnecessary.
+
+Windows (PowerShell or Git Bash):
+
+```text
+python -m venv .venv
+./.venv/Scripts/python.exe -m pip install -e .
+./.venv/Scripts/python.exe -m bbcli --help
 ```
+
+macOS / Linux:
+
+```text
+python3 -m venv .venv
+./.venv/bin/python -m pip install -e .
+./.venv/bin/python -m bbcli --help
+```
+
+On hosts using uv, `uv venv .venv` and `uv pip install --python .venv -e .` are an alternative; use the corresponding environment's Python path above to run the module. No `--break-system-packages` is needed for a virtual environment.
+
+If an earlier `pip --user` installation succeeded but `bb-cli` is not found, run `python -m bbcli --help` using the **same Python that installed it**. This bypasses the missing console-script PATH entry. `No module named bbcli` means that interpreter cannot see the installed package; check `python -m pip show bbcli` and use the intended environment instead of reinstalling globally. For the default user-install script directory, use:
+
+```text
+python -c "import sysconfig; print(sysconfig.get_path('scripts', scheme=sysconfig.get_preferred_scheme('user')))"
+```
+
+The user scheme matters: an unqualified `get_path('scripts')` may report the base interpreter's script directory. Custom install prefixes can differ. Prefer the module invocation over changing persistent PATH settings. `--help` checks the launcher without logging in; run authentication only when needed for the user's task.
 
 Dependencies are only `curl_cffi` (Chrome TLS fingerprint — the site rejects plain OpenSSL handshakes) and `beautifulsoup4`.
 
