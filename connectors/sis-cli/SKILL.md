@@ -17,11 +17,11 @@ Write: none — read-only by design. **Enrollment actions (add/drop/swap classes
 
 1. Install (if missing): `cd connectors/sis-cli` and install editable with the host's Python package manager (deps: curl_cffi + beautifulsoup4 only; e.g. a venv + its pip on dev desktops, `uv venv .venv && uv pip install -e .` on PEP 668 hosts — instance-level environment declarations in AGENTS.md take precedence; may reuse the bb-cli venv via PYTHONPATH for smoke runs)
 2. Login: `sis-cli login --username <student-id> --no-store` (password via the `SIS_CLI_PASSWORD` env var or interactive prompt; `--no-store` keeps it off disk; session cookie lives in `~/.sis-cli/session.json`). Credentials only ever live under `~/.sis-cli/`.
-3. Self-check: `sis-cli status` lists components when authenticated; sessions expire in ~5 minutes — the CLI re-logs in automatically per command, so no manual re-login is normally needed.
+3. Local diagnostic: `sis-cli status` never contacts SIS or attempts login. `authenticated: null` and `reachable: null` mean **not checked**, not success or failure; `session: cached_unverified` only confirms a local token was loaded. `relogin: blocked_missing_credentials` means the current resolver cannot supply credentials; availability does not prove they are valid. Exit 0 means the diagnostic completed, not that SIS is usable. A user-requested read can still fail because of campus network/VPN or expired authentication; distinguish those errors and do not infer missing credentials from a network failure. With `login --no-store`, re-login may need human authentication again.
 
 ## Steps
 
-1. `sis-cli status` to confirm the session/components
+1. `sis-cli status` to inspect local session/credential evidence and registered components; it does not confirm authentication or network reachability
 2. Pick a command per the need (see Command cheat sheet); `--format text` prints human-readable lines, JSON keeps structured values
 3. Relay the results to the user (language: see Language below)
 

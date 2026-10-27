@@ -1,6 +1,6 @@
 [project]
 name = "siscli"
-version = "0.3.0"
+version = "0.3.1"
 description = "CUHK-SZ SIS (sis.cuhk.edu.cn, PeopleSoft) read-only CLI connector"
 requires-python = ">=3.10"
 dependencies = [

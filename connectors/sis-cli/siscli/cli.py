@@ -18,19 +18,28 @@ def _fmt(obj) -> str:
 
 
 def cmd_status(sis: Sis, args) -> int:
-    alive = sis.transport.load_session()
-    print(_fmt({"authenticated": alive or _try_silent_login(sis),
+    # Loading a cookie jar is local evidence only, not a server validation.
+    session = "absent_or_unusable"
+    try:
+        if sis.transport.load_session():
+            session = "cached_unverified"
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        session = "unreadable"
+    try:
+        # Use the same resolver as re-login; never echo values or exception text.
+        config.resolve_credentials(sis.cfg, None, None)
+        relogin = "credentials_available_unverified"
+    except SystemExit:
+        relogin = "blocked_missing_credentials"
+    print(_fmt({"authenticated": None,
+                "authentication_checked": False,
+                "session": session,
+                "reachable": None,
+                "network_checked": False,
+                "relogin": relogin,
                 "host": "sis.cuhk.edu.cn",
                 "components": sorted(config.COMPONENTS)}))
     return 0
-
-
-def _try_silent_login(sis: Sis) -> bool:
-    try:
-        sis.ensure_session()
-        return True
-    except Exception:
-        return False
 
 
 def cmd_login(sis: Sis, args) -> int:
@@ -189,7 +198,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="sis-cli",
                                  description="sis.cuhk.edu.cn read-only CLI connector (PeopleSoft CS)")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("status", help="session status and available components")
+    sub.add_parser("status", help="local session/credential evidence (no network or login)")
     sub.add_parser("logout", help="log out and clear local credentials/session")
 
     p = sub.add_parser("login", help="interactive login")

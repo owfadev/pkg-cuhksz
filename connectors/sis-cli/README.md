@@ -37,7 +37,7 @@ Credentials and sessions live only in the local `~/.sis-cli/` (`SIS_CLI_HOME` ca
 
 | Command | Purpose |
 |---|---|
-| `status` | Session status and the list of available components |
+| `status` | Offline session/credential evidence and registered components; no network or login |
 | `login` / `logout` | Interactive login (`--no-store` keeps credentials off disk) / logout and clear local state |
 | `schedule [--days]` | My weekly class schedule: this week's events + the term course table; `--days` adds the **day-of-week timetable** from the student center page (Mo/Tu/We…) |
 | `grades [--term substring]` | View my grades: per-term course rows (course/units/grading basis/grade/grade points); defaults to the newest term |
@@ -66,3 +66,20 @@ Credentials and sessions live only in the local `~/.sis-cli/` (`SIS_CLI_HOME` ca
 ## Git Bash note
 
 Raw paths starting with `/` get rewritten by MSYS; prefix the command with `MSYS_NO_PATHCONV=1` or drop the leading slash (relative path).
+
+## Status contract (0.3.1)
+
+`status` is an offline diagnostic. It does not attempt silent login or contact the school. Its JSON separates local evidence from facts that require a server check:
+
+- `authenticated: null`, `authentication_checked: false`: authentication is unknown, including when cached cookies exist. This changes the old boolean field; consumers must not treat null as an authenticated state.
+- `session`: `cached_unverified` when a local token loads; `absent_or_unusable` when it does not; `unreadable` when a local error escapes the loader (for example, malformed cookie entries). The loader itself handles invalid JSON, unreadable bytes/files and empty/non-list jars by returning no usable session, so those cases report `absent_or_unusable`; `unreadable` is not a complete inventory of damaged files. An absent token does not say whether credentials could establish a new session.
+- `reachable: null`, `network_checked: false`: network reachability is unknown, never inferred from cached state or missing credentials.
+- `relogin`: `credentials_available_unverified` or `blocked_missing_credentials`, using the same resolver as normal re-login (including its environment-variable policy). No credentials or raw exception messages are emitted.
+- `components` lists supported commands, not verified server permissions. Exit 0 means the diagnostic completed.
+- A non-object JSON configuration is treated as empty, just like missing or invalid JSON; the original file is not rewritten. Constructing the client may create an empty local home directory, but status does not write configuration or session files.
+
+A subsequent user-requested read may report a network failure (check campus network/VPN), or an expired session that cannot re-login (authenticate interactively, especially after `login --no-store`). Status does not claim to probe session validity, network health, or password validity.
+
+### Changelog
+
+- 0.3.1: replace optimistic status/silent-login behavior with explicit offline evidence, unknown authentication/reachability, and credential availability. Normal login and query behavior is unchanged.
